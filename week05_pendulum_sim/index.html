@@ -107,6 +107,72 @@
     color: rgba(160, 175, 220, 0.5);
     letter-spacing: 1px;
   }
+
+  /* ========== 新增：画布下方控制条 ========== */
+  .bottom-bar {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 12px 20px;
+    background: rgba(20, 22, 34, 0.82);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(120, 140, 220, 0.28);
+    border-radius: 14px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.55);
+    z-index: 20;
+  }
+  .bottom-bar .group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .bottom-bar .group label {
+    font-size: 11px;
+    color: #a8aac8;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    min-width: 56px;
+  }
+  .bottom-bar .group input[type=range] {
+    width: 120px;
+    accent-color: #8ab4ff;
+  }
+  .bottom-bar .group .val {
+    width: 60px;
+    font-family: 'Consolas', 'Cascadia Mono', monospace;
+    font-size: 11px;
+    color: #fff;
+    text-align: right;
+    font-weight: 600;
+  }
+  .bottom-bar .divider {
+    width: 1px;
+    height: 26px;
+    background: rgba(120, 140, 220, 0.22);
+  }
+  .bottom-bar .reset-btn {
+    background: linear-gradient(135deg, rgba(138,180,255,0.22), rgba(138,180,255,0.10));
+    border: 1px solid rgba(138, 180, 255, 0.5);
+    color: #d8e3ff;
+    padding: 8px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    letter-spacing: 1px;
+    transition: all 0.18s;
+  }
+  .bottom-bar .reset-btn:hover {
+    background: linear-gradient(135deg, rgba(138,180,255,0.36), rgba(138,180,255,0.18));
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(138,180,255,0.25);
+  }
+  .bottom-bar .reset-btn:active { transform: translateY(0); }
 </style>
 </head>
 <body>
@@ -149,6 +215,29 @@
 </div>
 
 <div class="hint">提示：可拖动小球改变初始角度</div>
+
+<!-- ========== 新增：画布下方控制条（增量） ========== -->
+<div class="bottom-bar" role="toolbar" aria-label="pendulum controls">
+  <div class="group">
+    <label for="bbL">摆长 L</label>
+    <input type="range" id="bbL" min="100" max="350" value="200" step="1">
+    <span class="val" id="bbLv">200 px</span>
+  </div>
+  <div class="divider"></div>
+  <div class="group">
+    <label for="bbg">重力 g</label>
+    <input type="range" id="bbg" min="1" max="25" value="9.8" step="0.1">
+    <span class="val" id="bbgv">9.8</span>
+  </div>
+  <div class="divider"></div>
+  <div class="group">
+    <label for="bbc">阻尼 c</label>
+    <input type="range" id="bbc" min="0" max="0.010" value="0" step="0.0005">
+    <span class="val" id="bbcv">0.0000</span>
+  </div>
+  <div class="divider"></div>
+  <button class="reset-btn" id="bbReset" type="button">↻ 重置摆动（45°）</button>
+</div>
 
 <script>
 (() => {
@@ -218,6 +307,61 @@
     ui.c.value = sim.damping;  ui.cv.textContent = sim.damping.toFixed(3);
   }
   syncUI();
+
+  // ============================================================
+  // 新增：底部控制条（画布下方）—— 共享同一 sim 状态
+  // ============================================================
+  const bb = {
+    L:     document.getElementById('bbL'),
+    g:     document.getElementById('bbg'),
+    c:     document.getElementById('bbc'),
+    reset: document.getElementById('bbReset'),
+    Lv:    document.getElementById('bbLv'),
+    gv:    document.getElementById('bbgv'),
+    cv:    document.getElementById('bbcv'),
+  };
+
+  function syncBottomBar() {
+    bb.L.value = sim.L;        bb.Lv.textContent = sim.L.toFixed(0) + ' px';
+    bb.g.value = sim.g;        bb.gv.textContent = sim.g.toFixed(1);
+    bb.c.value = sim.damping;  bb.cv.textContent = sim.damping.toFixed(4);
+  }
+  syncBottomBar();
+
+  // 摆长
+  bb.L.addEventListener('input', e => {
+    sim.L = +e.target.value;
+    bb.Lv.textContent = sim.L.toFixed(0) + ' px';
+    // 同步左上面板
+    ui.L.value = sim.L;
+    ui.Lv.textContent = sim.L.toFixed(0) + ' px';
+  });
+  // 重力
+  bb.g.addEventListener('input', e => {
+    sim.g = +e.target.value;
+    bb.gv.textContent = sim.g.toFixed(1);
+    ui.g.value = sim.g;
+    ui.gv.textContent = sim.g.toFixed(1);
+  });
+  // 阻尼
+  bb.c.addEventListener('input', e => {
+    sim.damping = +e.target.value;
+    bb.cv.textContent = sim.damping.toFixed(4);
+    ui.c.value = sim.damping;
+    ui.cv.textContent = sim.damping.toFixed(3);
+  });
+  // 重置摆动 —— 精准回到 45° 初始状态
+  bb.reset.addEventListener('click', () => {
+    sim.theta0 = 45 * Math.PI / 180;
+    sim.theta  = sim.theta0;
+    sim.omega  = 0;
+    sim.paused = false;
+    ui.pause.textContent = '⏸ 暂停';
+    // 同步滑块显示（不改变当前值，但 theta0 已锁回 45°）
+    ui.a0.value = 45;
+    ui.av.textContent = '45°';
+    syncBottomBar();
+  });
 
   ui.L.addEventListener('input',  e => { sim.L = +e.target.value; ui.Lv.textContent = sim.L.toFixed(0) + ' px'; });
   ui.g.addEventListener('input',  e => { sim.g = +e.target.value; ui.gv.textContent = sim.g.toFixed(1); });
