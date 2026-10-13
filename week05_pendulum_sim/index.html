@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>单摆模拟器 · Week05 Pendulum Sim</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #1a1a24;
+    color: #e6e6f0;
+    font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas { display: block; cursor: grab; background: #1a1a24; }
+  canvas:active { cursor: grabbing; }
+
+  .panel {
+    position: fixed;
+    top: 16px; left: 16px;
+    background: rgba(20, 22, 34, 0.78);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(120, 140, 220, 0.28);
+    border-radius: 14px;
+    padding: 16px 20px 14px;
+    width: 270px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.55);
+    z-index: 10;
+  }
+  .panel h2 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #8ab4ff;
+    text-transform: uppercase;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    margin: 9px 0;
+    font-size: 12px;
+  }
+  .row label {
+    width: 78px;
+    color: #a8aac8;
+    letter-spacing: 0.5px;
+  }
+  .row input[type=range] {
+    flex: 1;
+    margin: 0 8px;
+    accent-color: #8ab4ff;
+  }
+  .row .val {
+    width: 60px;
+    text-align: right;
+    font-family: 'Consolas', 'Cascadia Mono', monospace;
+    color: #fff;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .btns { display: flex; gap: 8px; margin-top: 12px; }
+  .btn {
+    flex: 1;
+    background: rgba(138, 180, 255, 0.14);
+    border: 1px solid rgba(138, 180, 255, 0.4);
+    color: #c8d4ff;
+    padding: 7px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.18s;
+    font-family: inherit;
+  }
+  .btn:hover {
+    background: rgba(138, 180, 255, 0.28);
+    transform: translateY(-1px);
+  }
+  .btn:active { transform: translateY(0); }
+
+  .stats {
+    position: fixed;
+    bottom: 16px; right: 16px;
+    font-family: 'Consolas', 'Cascadia Mono', monospace;
+    font-size: 12px;
+    color: rgba(200, 215, 255, 0.72);
+    text-align: right;
+    line-height: 1.7;
+    padding: 10px 14px;
+    background: rgba(20, 22, 34, 0.6);
+    border: 1px solid rgba(120, 140, 220, 0.2);
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+  }
+  .stats span.k { color: #7d8db8; margin-right: 6px; }
+  .stats span.v { color: #fff; font-weight: 600; }
+
+  .hint {
+    position: fixed;
+    bottom: 16px; left: 16px;
+    font-size: 11px;
+    color: rgba(160, 175, 220, 0.5);
+    letter-spacing: 1px;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div class="panel">
+  <h2>⚙ 单摆参数</h2>
+  <div class="row">
+    <label>摆长 L</label>
+    <input type="range" id="L" min="80" max="350" value="200" step="1">
+    <span class="val" id="Lv">200 px</span>
+  </div>
+  <div class="row">
+    <label>重力 g</label>
+    <input type="range" id="g" min="1" max="30" value="9.8" step="0.1">
+    <span class="val" id="gv">9.8</span>
+  </div>
+  <div class="row">
+    <label>角度 θ₀</label>
+    <input type="range" id="a0" min="-179" max="179" value="45" step="1">
+    <span class="val" id="av">45°</span>
+  </div>
+  <div class="row">
+    <label>阻尼 c</label>
+    <input type="range" id="c" min="0" max="0.5" value="0" step="0.005">
+    <span class="val" id="cv">0.000</span>
+  </div>
+  <div class="btns">
+    <button class="btn" id="reset">↻ 重置</button>
+    <button class="btn" id="pause">⏸ 暂停</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div><span class="k">θ</span><span class="v" id="info-angle">0.0°</span></div>
+  <div><span class="k">ω</span><span class="v" id="info-omega">0.00 rad/s</span></div>
+  <div><span class="k">T 理论</span><span class="v" id="info-period">0.00 s</span></div>
+  <div><span class="k">E</span><span class="v" id="info-energy">0.000 J/kg</span></div>
+  <div><span class="k">FPS</span><span class="v" id="info-fps">60</span></div>
+</div>
+
+<div class="hint">提示：可拖动小球改变初始角度</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ============================================================
+  // Canvas 自适应（高 DPI）
+  // ============================================================
+  const canvas = document.getElementById('cv');
+  const ctx = canvas.getContext('2d');
+  let DPR = Math.max(1, window.devicePixelRatio || 1);
+  let W = window.innerWidth, H = window.innerHeight;
+
+  function resize() {
+    DPR = Math.max(1, window.devicePixelRatio || 1);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width  = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ============================================================
+  // 物理参数（与初始约束）
+  // ============================================================
+  const sim = {
+    L: 200,                          // 摆长（像素）
+    g: 9.8,                          // 重力加速度
+    theta0: 45 * Math.PI / 180,      // 初始摆角 45°
+    damping: 0.0,                    // 阻尼系数
+    pxPerMeter: 100,                 // 像素 → 米的换算
+    theta: 45 * Math.PI / 180,       // 当前角
+    omega: 0,                        // 当前角速度
+    paused: false,
+  };
+
+  // ============================================================
+  // UI 绑定
+  // ============================================================
+  const ui = {
+    L: document.getElementById('L'),
+    g: document.getElementById('g'),
+    a0: document.getElementById('a0'),
+    c: document.getElementById('c'),
+    reset: document.getElementById('reset'),
+    pause: document.getElementById('pause'),
+    Lv: document.getElementById('Lv'),
+    gv: document.getElementById('gv'),
+    av: document.getElementById('av'),
+    cv: document.getElementById('cv'),
+    infoAngle: document.getElementById('info-angle'),
+    infoOmega: document.getElementById('info-omega'),
+    infoPeriod: document.getElementById('info-period'),
+    infoEnergy: document.getElementById('info-energy'),
+    infoFps: document.getElementById('info-fps'),
+  };
+
+  function syncUI() {
+    ui.L.value = sim.L;        ui.Lv.textContent = sim.L.toFixed(0) + ' px';
+    ui.g.value = sim.g;        ui.gv.textContent = sim.g.toFixed(1);
+    ui.a0.value = sim.theta0 * 180 / Math.PI;
+    ui.av.textContent = (sim.theta0 * 180 / Math.PI).toFixed(0) + '°';
+    ui.c.value = sim.damping;  ui.cv.textContent = sim.damping.toFixed(3);
+  }
+  syncUI();
+
+  ui.L.addEventListener('input',  e => { sim.L = +e.target.value; ui.Lv.textContent = sim.L.toFixed(0) + ' px'; });
+  ui.g.addEventListener('input',  e => { sim.g = +e.target.value; ui.gv.textContent = sim.g.toFixed(1); });
+  ui.a0.addEventListener('input', e => {
+    const deg = +e.target.value;
+    sim.theta0 = deg * Math.PI / 180;
+    ui.av.textContent = deg.toFixed(0) + '°';
+  });
+  ui.c.addEventListener('input',  e => { sim.damping = +e.target.value; ui.cv.textContent = sim.damping.toFixed(3); });
+
+  ui.reset.addEventListener('click', () => {
+    sim.theta = sim.theta0;
+    sim.omega = 0;
+  });
+  ui.pause.addEventListener('click', () => {
+    sim.paused = !sim.paused;
+    ui.pause.textContent = sim.paused ? '▶ 继续' : '⏸ 暂停';
+  });
+
+  // ============================================================
+  // 物理积分 —— 4 阶 Runge-Kutta（保持大角度下的稳定性）
+  // 状态 y = [theta, omega]
+  // 导数 f = [omega, -(g/Lm)·sin(theta) - c·omega]
+  // ============================================================
+  function derivs(theta, omega) {
+    const Lm = sim.L / sim.pxPerMeter;
+    const a = -(sim.g / Lm) * Math.sin(theta) - sim.damping * omega;
+    return { dtheta: omega, domega: a };
+  }
+
+  function rk4Step(dt) {
+    const t = sim.theta, o = sim.omega;
+    const k1 = derivs(t, o);
+    const k2 = derivs(t + 0.5*dt*k1.dtheta, o + 0.5*dt*k1.domega);
+    const k3 = derivs(t + 0.5*dt*k2.dtheta, o + 0.5*dt*k2.domega);
+    const k4 = derivs(t + dt*k3.dtheta,     o + dt*k3.domega);
+    sim.theta += dt * (k1.dtheta + 2*k2.dtheta + 2*k3.dtheta + k4.dtheta) / 6;
+    sim.omega += dt * (k1.domega + 2*k2.domega + 2*k3.domega + k4.domega) / 6;
+  }
+
+  // ============================================================
+  // 交互：拖动小球改变角度
+  // ============================================================
+  let dragging = false;
+  function anchor() { return { x: W / 2, y: 80 }; }
+
+  function screenToAngle(mx, my) {
+    const a = anchor();
+    // 注意：Canvas y 轴向下，所以 dy = my - a.y
+    // 我们希望 theta=0 时球在正下方，theta>0 时球在右
+    // 即 bx = a.x + L·sin(theta), by = a.y + L·cos(theta)
+    // 所以 theta = atan2(dx, dy)
+    const dx = mx - a.x;
+    const dy = my - a.y;
+    return Math.atan2(dx, dy);
+  }
+
+  function bindDragStart(getXY) {
+    return e => {
+      const p = getXY(e);
+      if (!p) return;
+      dragging = true;
+      sim.theta = screenToAngle(p.x, p.y);
+      sim.omega = 0;
+      e.preventDefault && e.preventDefault();
+    };
+  }
+  function bindDragMove(getXY) {
+    return e => {
+      if (!dragging) return;
+      const p = getXY(e);
+      if (!p) return;
+      sim.theta = screenToAngle(p.x, p.y);
+      sim.omega = 0;
+      e.preventDefault && e.preventDefault();
+    };
+  }
+
+  canvas.addEventListener('mousedown',  bindDragStart(e => ({x:e.clientX, y:e.clientY})));
+  window.addEventListener('mousemove', bindDragMove(e => ({x:e.clientX, y:e.clientY})));
+  window.addEventListener('mouseup',   () => dragging = false);
+  canvas.addEventListener('touchstart', bindDragStart(e => {
+    const t = e.touches[0]; return t ? {x:t.clientX, y:t.clientY} : null;
+  }), { passive: false });
+  canvas.addEventListener('touchmove', bindDragMove(e => {
+    const t = e.touches[0]; return t ? {x:t.clientX, y:t.clientY} : null;
+  }), { passive: false });
+  canvas.addEventListener('touchend',   () => dragging = false);
+
+  // ============================================================
+  // 渲染
+  // ============================================================
+  function drawGrid() {
+    ctx.strokeStyle = 'rgba(80, 95, 150, 0.06)';
+    ctx.lineWidth = 1;
+    const step = 40;
+    for (let x = 0; x < W; x += step) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for (let y = 0; y < H; y += step) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+    // 中心准线
+    ctx.strokeStyle = 'rgba(120, 140, 220, 0.10)';
+    ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+  }
+
+  function drawCeiling(a) {
+    // 天花板横梁
+    ctx.strokeStyle = 'rgba(180, 195, 230, 0.45)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(a.x - 80, 0);
+    ctx.lineTo(a.x - 80, 36);
+    ctx.lineTo(a.x + 80, 36);
+    ctx.lineTo(a.x + 80, 0);
+    ctx.stroke();
+    // 锚点
+    ctx.fillStyle = '#8ab4ff';
+    ctx.beginPath(); ctx.arc(a.x, a.y, 5, 0, Math.PI*2); ctx.fill();
+    // 锚点光晕
+    const g = ctx.createRadialGradient(a.x, a.y, 1, a.x, a.y, 12);
+    g.addColorStop(0, 'rgba(138,180,180,0.7)');
+    g.addColorStop(1, 'rgba(138,255,180,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(a.x, a.y, 12, 0, Math.PI*2); ctx.fill();
+  }
+
+  function drawPendulum(a) {
+    const bx = a.x + sim.L * Math.sin(sim.theta);
+    const by = a.y + sim.L * Math.cos(sim.theta);
+
+    // 摆线
+    const grad = ctx.createLinearGradient(a.x, a.y, bx, by);
+    grad.addColorStop(0, 'rgba(200, 215, 245, 0.65)');
+    grad.addColorStop(1, 'rgba(200, 215, 245, 0.35)');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+
+    const ballR = 22;
+
+    // 球外光晕（微弱发光）
+    const glow = ctx.createRadialGradient(bx, by, ballR * 0.4, bx, by, ballR * 3.5);
+    glow.addColorStop(0,    'rgba(138, 180, 255, 0.55)');
+    glow.addColorStop(0.35, 'rgba(138, 180, 255, 0.20)');
+    glow.addColorStop(1,    'rgba(138, 180, 255, 0.00)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(bx, by, ballR * 3.5, 0, Math.PI*2);
+    ctx.fill();
+
+    // 球本体（径向渐变）
+    const ball = ctx.createRadialGradient(bx - 7, by - 7, 2, bx, by, ballR);
+    ball.addColorStop(0,   '#ffffff');
+    ball.addColorStop(0.3, '#bcd0ff');
+    ball.addColorStop(0.7, '#5a78c8');
+    ball.addColorStop(1,   '#1f2a52');
+    ctx.fillStyle = ball;
+    ctx.beginPath();
+    ctx.arc(bx, by, ballR, 0, Math.PI*2);
+    ctx.fill();
+
+    // 球轮廓
+    ctx.strokeStyle = 'rgba(180, 200, 255, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(bx, by, ballR, 0, Math.PI*2);
+    ctx.stroke();
+
+    // 高光
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(bx - 7, by - 7, 3, 0, Math.PI*2);
+    ctx.fill();
+  }
+
+  function drawTrail(a) {
+    // 绘制运动轨迹（最近一段）
+    ctx.strokeStyle = 'rgba(138, 180, 255, 0.20)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < trail.length; i++) {
+      const t = trail[i];
+      const x = a.x + sim.L * Math.sin(t);
+      const y = a.y + sim.L * Math.cos(t);
+      if (i === 0) ctx.moveTo(x, y);
+      else          ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // ============================================================
+  // 动画主循环
+  // ============================================================
+  let last = performance.now();
+  let fpsAcc = 0, fpsCnt = 0, fpsDisp = 60;
+  const trail = [];
+  const TRAIL_MAX = 80;
+
+  function loop(now) {
+    const dtReal = Math.min((now - last) / 1000, 1/30); // 防切后台跳变
+    last = now;
+
+    if (!sim.paused && !dragging) {
+      // 子步积分：dt_sub = 1/240 秒，确保大角度下不发散
+      const dtSub = 1 / 240;
+      let remain = dtReal;
+      while (remain > 1e-6) {
+        const d = Math.min(dtSub, remain);
+        rk4Step(d);
+        remain -= d;
+      }
+      // 轨迹
+      trail.push(sim.theta);
+      if (trail.length > TRAIL_MAX) trail.shift();
+    } else {
+      // 暂停/拖动时清空轨迹
+      trail.length = 0;
+    }
+
+    // ===== 渲染 =====
+    ctx.fillStyle = '#1a1a24';
+    ctx.fillRect(0, 0, W, H);
+
+    drawGrid();
+
+    const a = anchor();
+    drawCeiling(a);
+    drawTrail(a);
+    drawPendulum(a);
+
+    // ===== 信息面板 =====
+    const deg = sim.theta * 180 / Math.PI;
+    const Lm = sim.L / sim.pxPerMeter;
+    const T = 2 * Math.PI * Math.sqrt(Lm / sim.g);
+    const height = Lm - Lm * Math.cos(sim.theta);
+    const E = sim.g * height + 0.5 * (Lm * sim.omega) ** 2;
+
+    ui.infoAngle.textContent  = deg.toFixed(1) + '°';
+    ui.infoOmega.textContent  = sim.omega.toFixed(2) + ' rad/s';
+    ui.infoPeriod.textContent = T.toFixed(2) + ' s';
+    ui.infoEnergy.textContent = E.toFixed(3) + ' J/kg';
+
+    fpsAcc += dtReal; fpsCnt++;
+    if (fpsAcc >= 0.5) {
+      fpsDisp = fpsCnt / fpsAcc;
+      fpsAcc = 0; fpsCnt = 0;
+      ui.infoFps.textContent = fpsDisp.toFixed(0);
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  // 启动
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
