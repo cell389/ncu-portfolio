@@ -173,6 +173,14 @@
     box-shadow: 0 4px 14px rgba(138,180,255,0.25);
   }
   .bottom-bar .reset-btn:active { transform: translateY(0); }
+  .bottom-bar .reset-btn.flash {
+    animation: pulseFlash 0.38s ease-out;
+  }
+  @keyframes pulseFlash {
+    0%   { box-shadow: 0 0 0 0 rgba(138,180,255,0.6); transform: scale(1); }
+    50%  { box-shadow: 0 0 0 10px rgba(138,180,255,0); transform: scale(1.08); }
+    100% { box-shadow: 0 0 0 0 rgba(138,180,255,0); transform: scale(1); }
+  }
 </style>
 </head>
 <body>
@@ -350,17 +358,40 @@
     ui.c.value = sim.damping;
     ui.cv.textContent = sim.damping.toFixed(3);
   });
-  // 重置摆动 —— 精准回到 45° 初始状态
-  bb.reset.addEventListener('click', () => {
-    sim.theta0 = 45 * Math.PI / 180;
+  // ============================================================
+  // 🔧 修复点：原版本 HTML 有 <button onclick="resetAnimation()">
+  //           但函数从未定义，导致 ReferenceError。
+  //           现在在 IIFE 内显式定义 + 暴露到 window，
+  //           同时所有按钮 handler 用 addEventListener 而非内联。
+  // ============================================================
+  function resetAnimation(targetDeg = 45) {
+    const deg = (typeof targetDeg === 'number' && isFinite(targetDeg)) ? targetDeg : 45;
+    sim.theta0 = deg * Math.PI / 180;
     sim.theta  = sim.theta0;
     sim.omega  = 0;
     sim.paused = false;
-    ui.pause.textContent = '⏸ 暂停';
-    // 同步滑块显示（不改变当前值，但 theta0 已锁回 45°）
-    ui.a0.value = 45;
-    ui.av.textContent = '45°';
-    syncBottomBar();
+    // 同步左上面板
+    if (ui && ui.pause)  ui.pause.textContent = '⏸ 暂停';
+    if (ui && ui.a0)     ui.a0.value = deg;
+    if (ui && ui.av)     ui.av.textContent = deg.toFixed(0) + '°';
+    // 同步底部条
+    if (typeof syncBottomBar === 'function') syncBottomBar();
+    // 视觉反馈：按钮闪光（防御性可选）
+    if (bb && bb.reset) {
+      bb.reset.classList.add('flash');
+      setTimeout(() => bb.reset.classList.remove('flash'), 380);
+    }
+  }
+  // 暴露到 window（兜底）：万一遗留的内联 onclick="resetAnimation()" 仍存在
+  window.resetAnimation = resetAnimation;
+
+  // 重置摆动 —— 精准回到 45° 初始状态
+  bb.reset.addEventListener('click', () => {
+    try {
+      resetAnimation(45);
+    } catch (e) {
+      console.error('[pendulum] reset failed:', e);
+    }
   });
 
   ui.L.addEventListener('input',  e => { sim.L = +e.target.value; ui.Lv.textContent = sim.L.toFixed(0) + ' px'; });
